@@ -1,32 +1,41 @@
 package com.example.sbma_audio
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.pm.PackageManager
-import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioTrack
+import android.media.*
 import android.os.Bundle
+import android.os.Environment
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.Button
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.example.sbma_audio.ui.theme.SBMA_AudioTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
-import java.io.IOException
-import java.io.InputStream
+import java.io.*
 import java.time.LocalTime
 
 class MainActivity : ComponentActivity() {
 
     lateinit var inputStream: InputStream
+    lateinit var lastRecord: File
+
+    private val recRunning = mutableStateOf(false)
+    private val lastExists = mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,26 +43,90 @@ class MainActivity : ComponentActivity() {
         hasPermission()
 
         setContent {
+            val buttonText = if(recRunning.value) "Stop" else "Record"
+
             SBMA_AudioTheme {
                 // A surface container using the 'background' color from the theme
-                Surface(
+                Column(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colors.background
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text("Audio Lab")
+
+                    Button(onClick = {
+                        recRunning.value = !recRunning.value
+                        if(recRunning.value){
+                            GlobalScope.launch(Dispatchers.Main) {
+                                async(Dispatchers.Default) {
+                                    lastRecord = recordAudio()
+                                    lastExists.value = true
+                                }
+                            }
+                        }
+                    }){
+                        Text(buttonText)
+                    }
+
                     Button(onClick = {
                         GlobalScope.launch(Dispatchers.Main) {
-                            inputStream = resources.openRawResource(R.raw.when_you_try_your_best)
+                            inputStream = lastRecord.inputStream()
                             async(Dispatchers.Default) { playAudio(inputStream) }
                         }
-                    }) {
-                        Text("Play Audio")
+                    },
+                        enabled = lastExists.value
+                    ) {
+                        Text("Play Last Record")
                     }
                 }
             }
         }
+    }
 
+    @SuppressLint("MissingPermission")
+    private fun recordAudio(): File{
+        val recFileName = "recording${LocalTime.now().toString()}.raw"
+        val storageDir = getExternalFilesDir(Environment.DIRECTORY_MUSIC)
+        var recFile: File? = null
+        try{
+            recFile = File(storageDir.toString() + "/" + recFileName)
+        }catch (e: IOException){
+            Log.e("pengb", "Can't create audio file $e")
+        }
 
+        val minBufferSize = AudioTrack.getMinBufferSize(
+            44100, AudioFormat.CHANNEL_OUT_STEREO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+        val aFormat: AudioFormat = AudioFormat.Builder()
+            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+            .setSampleRate(44100)
+            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+            .build()
+        val recorder = AudioRecord.Builder()
+            .setAudioSource(MediaRecorder.AudioSource.MIC)
+            .setAudioFormat(aFormat)
+            .setBufferSizeInBytes(minBufferSize)
+            .build()
+        val audioData = ByteArray(minBufferSize)
+
+        try{
+            val outputStream = FileOutputStream(recFile)
+            val bufferedOutputStream = BufferedOutputStream(outputStream)
+            val dataOutputStream = DataOutputStream(bufferedOutputStream)
+
+            recorder.startRecording()
+            while(recRunning.value){
+                val numofBytes = recorder.read(audioData, 0, minBufferSize)
+                if(numofBytes > 0){
+                    dataOutputStream.write(audioData)
+                }
+            }
+            recorder.stop()
+            dataOutputStream.close()
+        }catch (e: IOException){
+            Log.d("pengb", e.toString())
+        }
+        return recFile!!
     }
 
     private fun playAudio(istream: InputStream) {
@@ -75,7 +148,7 @@ class MainActivity : ComponentActivity() {
             .setAudioFormat(aFormat)
             .setBufferSizeInBytes(minBufferSize)
             .build()
-        track.setVolume(1f)
+        track.setVolume(2f)
 
         track.play()
         var i = 0
