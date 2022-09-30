@@ -1,6 +1,9 @@
 package com.example.sbma_audio
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,5 +29,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun hasPermission(): Boolean {
+        if(checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED){
+            Log.d("pengb", "No audio access")
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1)
+            return true // assuming that the user grants permission
+        }
+        return true
     }
 }
